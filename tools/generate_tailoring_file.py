@@ -67,7 +67,7 @@ def process_rule(rule):
     return (rule, True)
 
 def print_xml_rule(rule, is_selected):
-    return f'<xccdf:select idref="{ rule }" selected="' + str(is_selected).lower() + '"/>\n'
+    return f'<xccdf:select idref="xccdf_org.ssgproject.content_rule_{ rule }" selected="' + str(is_selected).lower() + '"/>\n'
 
 def create_tailoring_file(parsed_yaml, raw_yaml, xccdf_doc):
     yaml_sel=parsed_yaml["selections"]
