@@ -31,6 +31,8 @@ TAILORING_DIR="$BASE_DIR/tailoring"
 UBUNTU_VERSION="20.04"
 FOCAL_CPE_DICTIONARY_FILE="$BASE_DIR/benchmarks/Canonical_Ubuntu_${UBUNTU_VERSION}_Benchmarks-cpe-dictionary.xml"
 FOCAL_XCCDF_FILE="$BASE_DIR/benchmarks/Canonical_Ubuntu_${UBUNTU_VERSION}_Benchmarks-xccdf.xml"
+CPE_OVAL_FILE="$BASE_DIR/benchmarks/$(grep -o "ssg-ubuntu[0-9]*-cpe-oval.xml" ${FOCAL_CPE_DICTIONARY_FILE} | head -n 1)"
+ENCODED_CPE_OVAL_FILE="$(echo ${CPE_OVAL_FILE} | sed 's/\//%2F/g;').result.xml"
 DATE=$(date +%Y%m%d.%H%M)
 RESULTS_DIR="/var/lib/usg"
 RESULTS_FILE="$RESULTS_DIR/usg-results-$DATE.xml"
@@ -66,6 +68,7 @@ function usage_common_options()
 {
     echo "	--html-file <path to file>          Overrides the HTML output file
 	--results-file <path to file>       Overrides the results file
+	--oval-results-file <path to file>  Generates an OVAL results file
 "
 }
 
@@ -172,6 +175,7 @@ alternatives entry 'usg_current_benchmarks' is properly configured.
 remediate_flag=""
 output_flag=""
 tailoring_flag=""
+oval_results_flag=""
 
 function usage
 {
@@ -211,6 +215,16 @@ function validate_profile
     if [ -z "${PROFILES[$profile]}" ]; then
         echoerr "Error: profile '$profile' is not valid!"
         usage "${command}"
+        exit 1
+    fi
+}
+
+# Since this generation process generates a temporary file from oscap,
+#  we make sure that the named temporary file doesn't already exist here.
+function check_oval_results_file
+{
+    if [ -f "${ENCODED_CPE_OVAL_FILE}" ]; then
+        echoerr "The file ${ENCODED_CPE_OVAL_FILE} already exists in the current directory, but this tool will accidentally overwrite it. Please remove the file from this directory."
         exit 1
     fi
 }
@@ -277,7 +291,7 @@ command="$1"
 case "${command}" in
     $AUDIT_CMD|$FIX_CMD)
         shift
-        all_params=$(getopt -n ${prog_name} -oh --long tailoring-file:,html-file:,results-file:,help -- "$@")
+        all_params=$(getopt -n ${prog_name} -oh --long tailoring-file:,html-file:,results-file:,oval-results-file:,help -- "$@")
         ;;
     $GENFIX_CMD)
         shift
@@ -309,10 +323,12 @@ while true ; do
             output_flag="$1 $2"; shift 2 ;;
         --tailoring-file)
             tailoring_file=$2; shift 2 ;;
-	--html-file)
-	    HTML_FILE=$2; shift 2 ;;
-	--results-file)
-	    RESULTS_FILE=$2; shift 2;;
+        --html-file)
+            HTML_FILE=$2; shift 2 ;;
+        --results-file)
+            RESULTS_FILE=$2; shift 2;;
+        --oval-results-file)
+            oval_results_file=$2; shift 2;;
         -h|--help)
             usage "${command}"
             exit 0
@@ -366,13 +382,18 @@ else
     tailoring_flag="--tailoring-file ${tailoring_file}"
 fi
 
+if [ -v oval_results_file ]; then
+    check_oval_results_file
+    oval_results_flag="--oval-results"
+fi
+
 # Build the command based on the operation provided
 if [ "${command}" == $FIX_CMD ]; then
     remediate_flag="--remediate"
 fi
 case "${command}" in
     $AUDIT_CMD|$FIX_CMD)
-        command="oscap xccdf eval --profile ${profile} --cpe $FOCAL_CPE_DICTIONARY_FILE --results $RESULTS_FILE ${tailoring_flag} ${remediate_flag} $FOCAL_XCCDF_FILE"
+        command="oscap xccdf eval --profile ${profile} --cpe $FOCAL_CPE_DICTIONARY_FILE --results $RESULTS_FILE ${tailoring_flag} ${oval_results_flag} ${remediate_flag} $FOCAL_XCCDF_FILE"
 
         # remove old results file
 	mkdir -p $RESULTS_DIR
@@ -394,6 +415,10 @@ case "${command}" in
         else
             echoerr "USG audit scan command failed!"
             exit 1
+        fi
+
+        if [ -v oval_results_file ]; then
+            (mv "${ENCODED_CPE_OVAL_FILE}" "${oval_results_file}" && echo "OVAL results file available at ${oval_results_file}") || (echo "Rename of temporary OVAL results file failed; file available at ./\"${ENCODED_CPE_OVAL_FILE}\"")
         fi
         ;;
     $GENFIX_CMD)
